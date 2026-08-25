@@ -1,11 +1,7 @@
-# Local PWA duplicate cleanup
+# Mobile sidebar fix
 
-- [x] Add installable PWA manifest, service worker, and app icons.
-- [x] Add a local-folder picker using the File System Access API.
-- [x] Scan selected image files locally and group exact duplicates by SHA-256.
-- [x] Add visual near-duplicate analysis using browser-safe image fingerprints.
-- [x] Add an explicit approval queue before deletion.
-- [x] Move approved duplicates to a user-selected recovery folder when possible, then delete only after confirmation.
-- [x] Add permission-error, unsupported-browser, cancellation, and partial-failure states.
-- [x] Add GPL license and source/attribution notices.
-- [x] Test installability, local scanning, deletion guards, and responsive layout.
+- [x] Inspect the mobile sidebar state, navigation links, and responsive CSS.
+- [x] Close the sidebar after selecting a navigation item.
+- [x] Close the sidebar when the mobile backdrop is tapped.
+- [x] Close the sidebar on Escape and when the viewport returns to desktop.
+- [x] Verify mobile and desktop behavior and save a checkpoint.

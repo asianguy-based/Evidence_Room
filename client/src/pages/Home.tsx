@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { browserSupportsLocalFiles, moveToRecoveryAndDelete, scanLocalFolder, type LocalPair } from "@/lib/localCleanup";
+import { useIsMobile } from "@/hooks/useMobile";
 
 // Evidence Room design reminder: show the image comparison as the primary artifact.
 // Warm bone paper, ink-black type, monospaced filenames, Archive Vermilion review stamps.
@@ -69,6 +70,7 @@ function EvidenceFrame({ file, retained, meta, index, preview }: { file: string;
 
 export default function Home() {
   useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []);
+  const isMobile = useIsMobile();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"All pairs" | MatchType>("All pairs");
   const [marked, setMarked] = useState<number[]>([]);
@@ -84,6 +86,9 @@ export default function Home() {
   const [localRoot, setLocalRoot] = useState<FileSystemDirectoryHandle | null>(null);
   const [scanProgress, setScanProgress] = useState("");
   const [localImageCount, setLocalImageCount] = useState(0);
+
+  useEffect(() => { if (!isMobile) setSidebarOpen(false); }, [isMobile]);
+  useEffect(() => { if (!sidebarOpen) return; const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setSidebarOpen(false); }; window.addEventListener("keydown", closeOnEscape); return () => window.removeEventListener("keydown", closeOnEscape); }, [sidebarOpen]);
 
   const activePairs = localScanActive ? localPairs : pairs;
   const visiblePairs = useMemo(() => activePairs.filter((pair) => !deletedIds.includes(pair.id)).filter((pair) => {
@@ -152,16 +157,17 @@ export default function Home() {
         </div>
         <div className="rail-rule" />
         <nav className="rail-nav" aria-label="Primary navigation">
-          <a className="rail-link active" href="#review"><Layers3 size={17} /><span>Review queue</span><b>05</b></a>
-          <a className="rail-link" href="#overview"><Archive size={17} /><span>Scan overview</span></a>
-          <a className="rail-link" href="#method"><ShieldCheck size={17} /><span>How this works</span></a>
+          <a className="rail-link active" href="#review" onClick={() => setSidebarOpen(false)}><Layers3 size={17} /><span>Review queue</span><b>05</b></a>
+          <a className="rail-link" href="#overview" onClick={() => setSidebarOpen(false)}><Archive size={17} /><span>Scan overview</span></a>
+          <a className="rail-link" href="#method" onClick={() => setSidebarOpen(false)}><ShieldCheck size={17} /><span>How this works</span></a>
         </nav>
         <div className="rail-note"><div className="tiny-label">CURRENT SCAN</div><p>{localScanActive ? localFolderName : "Project picture inventory"}</p><span>{localScanActive ? "local files · read/write permission" : "demo data · choose a folder to begin"}</span></div>
         <div className="rail-bottom"><div className="rail-rule" /><button className="text-button" onClick={() => toast.info("The report is ready to download from your project files.")}><ArrowDownToLine size={15} /> Export report</button></div>
       </aside>
 
+      {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
       <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Toggle menu"><Menu size={20} /></button><div className="breadcrumb"><span>PROJECT FILES</span><ChevronRight size={14} /><strong>PICTURE DELETION REVIEW</strong></div><div className="top-actions"><span className="read-only"><ShieldCheck size={15} /> {localScanActive ? "LOCAL PERMISSION MODE" : "DEMO REVIEW MODE"}</span><button className="icon-button" onClick={() => toast.info(localScanActive ? "Deletion is local and permissioned." : "Choose a local folder to enable actual file operations.")} aria-label="Help"><CircleHelp size={18} /></button></div></header>
+        <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? "Close navigation" : "Open navigation"} aria-expanded={sidebarOpen}><Menu size={20} /></button><div className="breadcrumb"><span>PROJECT FILES</span><ChevronRight size={14} /><strong>PICTURE DELETION REVIEW</strong></div><div className="top-actions"><span className="read-only"><ShieldCheck size={15} /> {localScanActive ? "LOCAL PERMISSION MODE" : "DEMO REVIEW MODE"}</span><button className="icon-button" onClick={() => toast.info(localScanActive ? "Deletion is local and permissioned." : "Choose a local folder to enable actual file operations.")} aria-label="Help"><CircleHelp size={18} /></button></div></header>
 
         <section className="hero" id="overview">
           <div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot" /> SCAN COMPLETE · 25 AUG 2026</div><h1>Five pairs<br /><i>need your eyes.</i></h1><p>We found one exact duplicate and four visually similar pairs across your picture files. Mark what can go; keep the final call human.</p><div className="hero-actions"><button className="primary-button" onClick={chooseLocalFolder}><Archive size={16} /> {localScanActive ? "Scan another folder" : "Choose a local folder"}</button><button className="secondary-button" onClick={markAll}><ClipboardCheck size={16} /> Mark visible candidates</button><button className="secondary-button" onClick={() => { setMarked([]); toast("Review marks cleared"); }}><RotateCcw size={16} /> Reset marks</button>{localScanActive && <span className="local-scan-note"><ShieldCheck size={14} /> {localFolderName} · local scan{scanProgress ? ` · ${scanProgress}` : ""}</span>}</div></div>

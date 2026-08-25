@@ -81,3 +81,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 /* Local PWA state: make permission and actual-file actions explicit, never silent. */
 .local-scan-note { display: inline-flex; align-items: center; gap: 6px; color: var(--olive); font: 10px 'IBM Plex Mono'; max-width: 270px; }.real-preview:has(img[src=""]) { background: repeating-linear-gradient(135deg, #e5e1da 0 10px, #ddd7cf 10px 20px); }.real-preview img[src=""] { display: none; }
 @media (max-width: 650px) { .hero-actions { align-items: stretch; flex-direction: column; }.local-scan-note { max-width: none; } }
+
+/* Mobile navigation: the backdrop sits below the rail and above the workspace, so taps dismiss it. */
+.sidebar-backdrop { display: none; }
+@media (max-width: 650px) { .sidebar { z-index: 40; }.sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 30; border: 0; padding: 0; background: rgba(37,36,32,.28); cursor: default; animation: fade-in .18s var(--ease-out); }.workspace { position: relative; z-index: 1; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
