@@ -69,7 +69,7 @@ function EvidenceFrame({ file, retained, meta, index, preview }: { file: string;
 }
 
 export default function Home() {
-  useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []);
+  useEffect(() => { if (!("serviceWorker" in navigator)) return; if (import.meta.env.PROD) navigator.serviceWorker.register("/sw.js").catch(() => undefined); else navigator.serviceWorker.getRegistrations().then((registrations) => registrations.forEach((registration) => registration.unregister())); }, []);
   const isMobile = useIsMobile();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"All pairs" | MatchType>("All pairs");
@@ -98,6 +98,12 @@ export default function Home() {
 
   const toggleMark = (id: number) => {
     setMarked((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
+  const openDeletionFlow = () => {
+    if (!localScanActive) { chooseLocalFolder(); return; }
+    if (!marked.length) { toast.info("Mark at least one duplicate first", { description: "Use the Mark for review buttons, then return here to delete the selected files." }); return; }
+    setConfirmDelete(true);
   };
 
   const deleteMarked = async () => {
@@ -167,10 +173,10 @@ export default function Home() {
 
       {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
       <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? "Close navigation" : "Open navigation"} aria-expanded={sidebarOpen}><Menu size={20} /></button><div className="breadcrumb"><span>PROJECT FILES</span><ChevronRight size={14} /><strong>PICTURE DELETION REVIEW</strong></div><div className="top-actions"><span className="read-only"><ShieldCheck size={15} /> {localScanActive ? "LOCAL PERMISSION MODE" : "DEMO REVIEW MODE"}</span><button className="icon-button" onClick={() => toast.info(localScanActive ? "Deletion is local and permissioned." : "Choose a local folder to enable actual file operations.")} aria-label="Help"><CircleHelp size={18} /></button></div></header>
+        <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? "Close navigation" : "Open navigation"} aria-expanded={sidebarOpen}><Menu size={20} /></button><div className="breadcrumb"><span>PROJECT FILES</span><ChevronRight size={14} /><strong>PICTURE DELETION REVIEW</strong></div><div className="top-actions"><span className="read-only"><ShieldCheck size={15} /> {localScanActive ? "LOCAL PERMISSION MODE" : "DEMO REVIEW MODE"}</span><button className="top-delete-button" onClick={openDeletionFlow}><Trash2 size={14} /> Delete</button><button className="icon-button" onClick={() => toast.info(localScanActive ? "Deletion is local and permissioned." : "Choose a local folder to enable actual file operations.")} aria-label="Help"><CircleHelp size={18} /></button></div></header>
 
         <section className="hero" id="overview">
-          <div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot" /> SCAN COMPLETE · 25 AUG 2026</div><h1>Five pairs<br /><i>need your eyes.</i></h1><p>We found one exact duplicate and four visually similar pairs across your picture files. Mark what can go; keep the final call human.</p><div className="hero-actions"><button className="primary-button" onClick={chooseLocalFolder}><Archive size={16} /> {localScanActive ? "Scan another folder" : "Choose a local folder"}</button><button className="secondary-button" onClick={markAll}><ClipboardCheck size={16} /> Mark visible candidates</button><button className="secondary-button" onClick={() => { setMarked([]); toast("Review marks cleared"); }}><RotateCcw size={16} /> Reset marks</button>{localScanActive && <span className="local-scan-note"><ShieldCheck size={14} /> {localFolderName} · local scan{scanProgress ? ` · ${scanProgress}` : ""}</span>}</div></div>
+          <div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot" /> SCAN COMPLETE · 25 AUG 2026</div><h1>Five pairs<br /><i>need your eyes.</i></h1><p>We found one exact duplicate and four visually similar pairs across your picture files. Mark what can go; keep the final call human.</p><div className="hero-actions"><button className="primary-button" onClick={chooseLocalFolder}><Archive size={16} /> {localScanActive ? "Scan another folder" : "Choose a local folder"}</button><button className="secondary-button" onClick={markAll}><ClipboardCheck size={16} /> Mark visible candidates</button><button className="secondary-button" onClick={() => { setMarked([]); toast("Review marks cleared"); }}><RotateCcw size={16} /> Reset marks</button><button className="delete-button hero-delete" onClick={openDeletionFlow}><Trash2 size={16} /> Delete duplicates</button>{localScanActive && <span className="local-scan-note"><ShieldCheck size={14} /> {localFolderName} · local scan{scanProgress ? ` · ${scanProgress}` : ""}</span>}</div></div>
           <div className="hero-art"><img src="/manus-storage/evidence-room-contact-sheet_22be963b.jpg" alt="Archival contact sheet on a desk" /><div className="hero-art-overlay" /><div className="hero-caption"><span>FIELD NOTE 01</span><strong>Visual redundancy is a human decision.</strong></div></div>
         </section>
 
@@ -179,6 +185,7 @@ export default function Home() {
         <section className="queue-section" id="review">
           <div className="section-heading"><div><div className="section-index"><img src="/manus-storage/evidence-room-mark_16396f01.png" alt="" className="section-mark" /> 01 / EVIDENCE QUEUE</div><h2>Compare before you clear.</h2></div><div className="queue-count">{visiblePairs.length} {visiblePairs.length === 1 ? "pair" : "pairs"} shown</div></div>
           <div className="toolbar"><div className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search filenames or subjects" aria-label="Search filenames or subjects" />{query && <button onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}</div><div className="filter-group"><Filter size={15} /><button className={filter === "All pairs" ? "selected" : ""} onClick={() => setFilter("All pairs")}>All pairs</button><button className={filter === "Exact duplicate" ? "selected" : ""} onClick={() => setFilter("Exact duplicate")}>Exact</button><button className={filter === "Visual near-duplicate" ? "selected" : ""} onClick={() => setFilter("Visual near-duplicate")}>Visual</button></div></div>
+          <div className="deletion-control"><div className="deletion-copy"><Trash2 size={17} /><div><strong>Delete approved duplicates</strong><span>{localScanActive ? (marked.length ? `${marked.length} selected · recovery copy will be created first` : "Mark candidates in the queue before deleting") : "Choose a local folder to enable actual file deletion"}</span></div></div><button className="delete-button" onClick={openDeletionFlow}>{localScanActive && marked.length ? "Delete selected" : localScanActive ? "Select files first" : "Choose folder & scan"}</button></div>
           {marked.length > 0 && <div className="bulk-action-bar"><div><strong>{marked.length} {marked.length === 1 ? "candidate" : "candidates"} selected</strong><span>{localScanActive ? "Files will be moved to Evidence Room Recovery, then removed." : "Select a local folder to delete actual files."}</span></div><button className="delete-button" onClick={() => localScanActive ? setConfirmDelete(true) : chooseLocalFolder()}><Trash2 size={15} /> {localScanActive ? "Delete marked files" : "Choose folder to enable deletion"}</button></div>}
           {lastDeleted.length > 0 && <div className="undo-bar"><span><Check size={15} /> {lastDeleted.length} item{lastDeleted.length === 1 ? "" : "s"} removed from this queue.</span><button onClick={undoDelete}><RotateCcw size={14} /> Undo queue removal</button></div>}
 

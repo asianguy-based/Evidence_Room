@@ -86,3 +86,11 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .sidebar-backdrop { display: none; }
 @media (max-width: 650px) { .sidebar { z-index: 40; }.sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 30; border: 0; padding: 0; background: rgba(37,36,32,.28); cursor: default; animation: fade-in .18s var(--ease-out); }.workspace { position: relative; z-index: 1; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* Persistent deletion entry point: always visible, but actual removal remains permission-gated. */
+.deletion-control { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0 0 20px; padding: 14px 16px; background: #e5ded2; border: 1px solid var(--line); }.deletion-copy { display: flex; align-items: center; gap: 11px; color: var(--verm-dark); }.deletion-copy > svg { flex-shrink: 0; }.deletion-copy strong { display: block; color: var(--ink); font-size: 12px; }.deletion-copy span { display: block; color: var(--muted); font-size: 10px; margin-top: 4px; }.hero-delete { background: #9e402d; }.hero-delete:hover { background: #7f3325; }.deletion-control .delete-button { flex-shrink: 0; }.deletion-control .delete-button:active { transform: scale(.98); }
+@media (max-width: 650px) { .deletion-control { align-items: stretch; flex-direction: column; gap: 12px; }.deletion-control .delete-button { width: 100%; }.hero-delete { width: 100%; } }
+
+/* Persistent header action: keep deletion discoverable while routing it through the same guarded flow. */
+.top-delete-button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--verm); background: transparent; color: var(--verm-dark); padding: 7px 10px; font: 10px 'IBM Plex Mono'; letter-spacing: .05em; text-transform: uppercase; transition: all .18s var(--ease-out); }.top-delete-button:hover { color: white; background: var(--verm); }.top-delete-button:active { transform: scale(.98); }
+@media (max-width: 650px) { .top-actions { gap: 9px; }.top-delete-button { padding: 7px 8px; font-size: 9px; }.icon-button { padding: 4px; } }
