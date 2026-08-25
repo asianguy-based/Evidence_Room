@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Archive,
@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { browserSupportsLocalFiles, moveToRecoveryAndDelete, scanLocalFolder, type LocalPair } from "@/lib/localCleanup";
 
 // Evidence Room design reminder: show the image comparison as the primary artifact.
 // Warm bone paper, ink-black type, monospaced filenames, Archive Vermilion review stamps.
@@ -67,6 +68,7 @@ function EvidenceFrame({ file, retained, meta, index, preview }: { file: string;
 }
 
 export default function Home() {
+  useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"All pairs" | MatchType>("All pairs");
   const [marked, setMarked] = useState<number[]>([]);
@@ -75,23 +77,59 @@ export default function Home() {
   const [deletedIds, setDeletedIds] = useState<number[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [lastDeleted, setLastDeleted] = useState<number[]>([]);
+  const [localPairs, setLocalPairs] = useState<ReviewPair[]>([]);
+  const [localPairRecords, setLocalPairRecords] = useState<LocalPair[]>([]);
+  const [localScanActive, setLocalScanActive] = useState(false);
+  const [localFolderName, setLocalFolderName] = useState("");
+  const [localRoot, setLocalRoot] = useState<FileSystemDirectoryHandle | null>(null);
+  const [scanProgress, setScanProgress] = useState("");
+  const [localImageCount, setLocalImageCount] = useState(0);
 
-  const visiblePairs = useMemo(() => pairs.filter((pair) => !deletedIds.includes(pair.id)).filter((pair) => {
+  const activePairs = localScanActive ? localPairs : pairs;
+  const visiblePairs = useMemo(() => activePairs.filter((pair) => !deletedIds.includes(pair.id)).filter((pair) => {
     const haystack = `${pair.candidate} ${pair.retained} ${pair.subject}`.toLowerCase();
     return (filter === "All pairs" || pair.type === filter) && haystack.includes(query.toLowerCase());
-  }), [filter, query]);
+  }), [activePairs, filter, query, deletedIds]);
 
   const toggleMark = (id: number) => {
     setMarked((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   };
 
-  const deleteMarked = () => {
+  const deleteMarked = async () => {
     if (!marked.length) return;
+    if (localScanActive && localRoot) {
+      const selected = localPairRecords.filter((pair) => marked.includes(pair.id));
+      try {
+        for (const pair of selected) await moveToRecoveryAndDelete(pair.candidate, localRoot);
+        toast.success(`${selected.length} duplicate ${selected.length === 1 ? "file was" : "files were"} moved to Evidence Room Recovery`, { description: "The original candidates were removed after confirmation." });
+      } catch (error) {
+        toast.error("Deletion stopped before all files were processed", { description: error instanceof Error ? error.message : "Check the folder permission and try again." });
+        return;
+      }
+    } else {
+      setConfirmDelete(false);
+      toast.info("Choose a local folder before deleting", { description: "The app will request read/write permission and move approved files to Evidence Room Recovery first." });
+      return;
+    }
     setDeletedIds((current) => Array.from(new Set([...current, ...marked])));
-    setLastDeleted(marked);
+    setLastDeleted(localScanActive ? [] : marked);
     setMarked([]);
     setConfirmDelete(false);
-    toast.success(`${marked.length} duplicate ${marked.length === 1 ? "removed" : "duplicates removed"} from the review queue`, { description: "Project files remain untouched in this frontend-only dashboard." });
+  };
+
+  const chooseLocalFolder = async () => {
+    if (!browserSupportsLocalFiles()) { toast.error("This browser cannot access local folders", { description: "Use the latest Chrome or Edge over HTTPS or localhost." }); return; }
+    try {
+      const root = await (window as any).showDirectoryPicker({ mode: "readwrite" });
+      setScanProgress("Reading image files…");
+      const result = await scanLocalFolder(root, (count) => setScanProgress(`Reading image files · ${count}`));
+      const converted = result.pairs.map((pair: LocalPair): ReviewPair => ({ id: pair.id, candidate: pair.candidate.name, retained: pair.retained.name, type: pair.type, subject: pair.subject, reason: pair.reason, size: `${Math.round(pair.candidate.size / 1024)} KB`, candidateMeta: `LOCAL · ${pair.candidate.path}`, retainedMeta: `LOCAL · ${pair.retained.path}`, preview: "" }));
+      setLocalRoot(root); setLocalFolderName(root.name); setLocalImageCount(result.images.length); setLocalPairs(converted); setLocalPairRecords(result.pairs); setLocalScanActive(true); setDeletedIds([]); setMarked([]); setScanProgress("");
+      toast.success(`Scan complete · ${result.images.length} image files`, { description: `${converted.length} duplicate pairs are ready for review.` });
+    } catch (error) {
+      setScanProgress("");
+      if ((error as DOMException)?.name !== "AbortError") toast.error("The folder scan could not be completed", { description: error instanceof Error ? error.message : "Try choosing the folder again." });
+    }
   };
 
   const undoDelete = () => {
@@ -118,34 +156,34 @@ export default function Home() {
           <a className="rail-link" href="#overview"><Archive size={17} /><span>Scan overview</span></a>
           <a className="rail-link" href="#method"><ShieldCheck size={17} /><span>How this works</span></a>
         </nav>
-        <div className="rail-note"><div className="tiny-label">CURRENT SCAN</div><p>Project picture inventory</p><span>121 image files · read-only</span></div>
+        <div className="rail-note"><div className="tiny-label">CURRENT SCAN</div><p>{localScanActive ? localFolderName : "Project picture inventory"}</p><span>{localScanActive ? "local files · read/write permission" : "demo data · choose a folder to begin"}</span></div>
         <div className="rail-bottom"><div className="rail-rule" /><button className="text-button" onClick={() => toast.info("The report is ready to download from your project files.")}><ArrowDownToLine size={15} /> Export report</button></div>
       </aside>
 
       <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Toggle menu"><Menu size={20} /></button><div className="breadcrumb"><span>PROJECT FILES</span><ChevronRight size={14} /><strong>PICTURE DELETION REVIEW</strong></div><div className="top-actions"><span className="read-only"><ShieldCheck size={15} /> READ-ONLY MODE</span><button className="icon-button" onClick={() => toast.info("This dashboard marks files for review only; it never deletes them.")} aria-label="Help"><CircleHelp size={18} /></button></div></header>
+        <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Toggle menu"><Menu size={20} /></button><div className="breadcrumb"><span>PROJECT FILES</span><ChevronRight size={14} /><strong>PICTURE DELETION REVIEW</strong></div><div className="top-actions"><span className="read-only"><ShieldCheck size={15} /> {localScanActive ? "LOCAL PERMISSION MODE" : "DEMO REVIEW MODE"}</span><button className="icon-button" onClick={() => toast.info(localScanActive ? "Deletion is local and permissioned." : "Choose a local folder to enable actual file operations.")} aria-label="Help"><CircleHelp size={18} /></button></div></header>
 
         <section className="hero" id="overview">
-          <div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot" /> SCAN COMPLETE · 25 AUG 2026</div><h1>Five pairs<br /><i>need your eyes.</i></h1><p>We found one exact duplicate and four visually similar pairs across your picture files. Mark what can go; keep the final call human.</p><div className="hero-actions"><button className="primary-button" onClick={markAll}><ClipboardCheck size={16} /> Mark visible candidates</button><button className="secondary-button" onClick={() => { setMarked([]); toast("Review marks cleared"); }}><RotateCcw size={16} /> Reset marks</button></div></div>
+          <div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot" /> SCAN COMPLETE · 25 AUG 2026</div><h1>Five pairs<br /><i>need your eyes.</i></h1><p>We found one exact duplicate and four visually similar pairs across your picture files. Mark what can go; keep the final call human.</p><div className="hero-actions"><button className="primary-button" onClick={chooseLocalFolder}><Archive size={16} /> {localScanActive ? "Scan another folder" : "Choose a local folder"}</button><button className="secondary-button" onClick={markAll}><ClipboardCheck size={16} /> Mark visible candidates</button><button className="secondary-button" onClick={() => { setMarked([]); toast("Review marks cleared"); }}><RotateCcw size={16} /> Reset marks</button>{localScanActive && <span className="local-scan-note"><ShieldCheck size={14} /> {localFolderName} · local scan{scanProgress ? ` · ${scanProgress}` : ""}</span>}</div></div>
           <div className="hero-art"><img src="/manus-storage/evidence-room-contact-sheet_22be963b.jpg" alt="Archival contact sheet on a desk" /><div className="hero-art-overlay" /><div className="hero-caption"><span>FIELD NOTE 01</span><strong>Visual redundancy is a human decision.</strong></div></div>
         </section>
 
-        <section className="stats-strip" aria-label="Scan summary"><div className="stat"><span>FILES SCANNED</span><strong>121</strong><small>picture files</small></div><div className="stat"><span>EXACT DUPLICATES</span><strong>01</strong><small>pair found</small></div><div className="stat"><span>NEAR-DUPLICATES</span><strong>04</strong><small>pairs to review</small></div><div className="stat stat-accent"><span>MARKED TO REVIEW</span><strong>{String(marked.length).padStart(2, "0")}</strong><small>of 05 candidates</small></div></section>
+        <section className="stats-strip" aria-label="Scan summary"><div className="stat"><span>FILES SCANNED</span><strong>{localScanActive ? localImageCount : 121}</strong><small>picture files</small></div><div className="stat"><span>EXACT DUPLICATES</span><strong>{localScanActive ? localPairs.filter((pair) => pair.type === "Exact duplicate").length.toString().padStart(2, "0") : "01"}</strong><small>pair found</small></div><div className="stat"><span>NEAR-DUPLICATES</span><strong>{localScanActive ? localPairs.filter((pair) => pair.type === "Visual near-duplicate").length.toString().padStart(2, "0") : "04"}</strong><small>pairs to review</small></div><div className="stat stat-accent"><span>MARKED TO REVIEW</span><strong>{String(marked.length).padStart(2, "0")}</strong><small>of {localScanActive ? localPairs.length : 5} candidates</small></div></section>
 
         <section className="queue-section" id="review">
           <div className="section-heading"><div><div className="section-index"><img src="/manus-storage/evidence-room-mark_16396f01.png" alt="" className="section-mark" /> 01 / EVIDENCE QUEUE</div><h2>Compare before you clear.</h2></div><div className="queue-count">{visiblePairs.length} {visiblePairs.length === 1 ? "pair" : "pairs"} shown</div></div>
           <div className="toolbar"><div className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search filenames or subjects" aria-label="Search filenames or subjects" />{query && <button onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}</div><div className="filter-group"><Filter size={15} /><button className={filter === "All pairs" ? "selected" : ""} onClick={() => setFilter("All pairs")}>All pairs</button><button className={filter === "Exact duplicate" ? "selected" : ""} onClick={() => setFilter("Exact duplicate")}>Exact</button><button className={filter === "Visual near-duplicate" ? "selected" : ""} onClick={() => setFilter("Visual near-duplicate")}>Visual</button></div></div>
-          {marked.length > 0 && <div className="bulk-action-bar"><div><strong>{marked.length} {marked.length === 1 ? "candidate" : "candidates"} selected</strong><span>Ready for a final deletion check.</span></div><button className="delete-button" onClick={() => setConfirmDelete(true)}><Trash2 size={15} /> Delete marked duplicates</button></div>}
-          {lastDeleted.length > 0 && <div className="undo-bar"><span><Check size={15} /> {lastDeleted.length} item{lastDeleted.length === 1 ? "" : "s"} removed from this queue.</span><button onClick={undoDelete}><RotateCcw size={14} /> Undo</button></div>}
+          {marked.length > 0 && <div className="bulk-action-bar"><div><strong>{marked.length} {marked.length === 1 ? "candidate" : "candidates"} selected</strong><span>{localScanActive ? "Files will be moved to Evidence Room Recovery, then removed." : "Select a local folder to delete actual files."}</span></div><button className="delete-button" onClick={() => localScanActive ? setConfirmDelete(true) : chooseLocalFolder()}><Trash2 size={15} /> {localScanActive ? "Delete marked files" : "Choose folder to enable deletion"}</button></div>}
+          {lastDeleted.length > 0 && <div className="undo-bar"><span><Check size={15} /> {lastDeleted.length} item{lastDeleted.length === 1 ? "" : "s"} removed from this queue.</span><button onClick={undoDelete}><RotateCcw size={14} /> Undo queue removal</button></div>}
 
           <div className="pair-list">{visiblePairs.map((pair) => { const isMarked = marked.includes(pair.id); return <article className={`pair-card ${isMarked ? "marked" : ""}`} key={pair.id}><div className="pair-top"><div className="pair-title"><span className="pair-number">PAIR {String(pair.id).padStart(2, "0")}</span><h3>{pair.subject}</h3><span className={`match-badge ${pair.type === "Exact duplicate" ? "exact" : "visual"}`}>{pair.type === "Exact duplicate" ? "EXACT MATCH" : "VISUAL MATCH"}</span></div><div className="pair-actions"><button className={`mark-button ${isMarked ? "is-marked" : ""}`} onClick={() => toggleMark(pair.id)}>{isMarked ? <Check size={15} /> : <Trash2 size={15} />}{isMarked ? "Marked" : "Mark for review"}</button><button className="expand-button" onClick={() => setExpanded(expanded === pair.id ? null : pair.id)} aria-expanded={expanded === pair.id}>{expanded === pair.id ? "Close detail" : "View detail"}<ChevronRight size={15} className={expanded === pair.id ? "rotate-90" : ""} /></button></div></div><div className="evidence-line"><EvidenceFrame file={pair.candidate} meta={pair.candidateMeta} index={pair.id} preview={pair.preview} /><div className="comparison-connector"><span className="connector-label">{pair.type === "Exact duplicate" ? "100%" : "SIMILAR"}</span><div className="connector-line" /><ChevronRight size={16} /></div><EvidenceFrame file={pair.retained} retained meta={pair.retainedMeta} index={pair.id} preview={pair.preview} /></div><div className="pair-footer"><div><span className="footer-label">REASON FOR REVIEW</span><p>{pair.reason}</p></div><div className="retained-note"><Check size={14} /><span>Suggested keep: <b>{pair.retained}</b></span></div></div>{expanded === pair.id && <div className="detail-drawer"><div><span className="footer-label">CANDIDATE</span><code>{pair.candidate}</code><small>{pair.candidateMeta}</small></div><div><span className="footer-label">SUGGESTED KEEP</span><code>{pair.retained}</code><small>{pair.retainedMeta}</small></div><div><span className="footer-label">EST. SPACE</span><code>{pair.size}</code><small>candidate file size</small></div></div>}</article>; })}</div>
           {visiblePairs.length === 0 && <div className="empty-state"><Sparkles size={24} /><h3>{deletedIds.length === pairs.length ? "Review queue cleared." : "No pairs match that search."}</h3><p>{deletedIds.length === pairs.length ? "All selected duplicates were removed from this workspace." : "Try a different filename, subject, or filter."}</p>{deletedIds.length === pairs.length && lastDeleted.length > 0 && <button className="secondary-button empty-undo" onClick={undoDelete}><RotateCcw size={14} /> Undo last removal</button>}</div>}
         </section>
 
-        {confirmDelete && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmDelete(false); }}><section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title"><div className="modal-icon"><AlertTriangle size={21} /></div><div className="modal-copy"><div className="section-index">FINAL REVIEW STEP</div><h2 id="delete-title">Delete {marked.length} marked {marked.length === 1 ? "duplicate" : "duplicates"}?</h2><p>This will remove the selected candidates from this review queue and record the decision in the current session. It will <strong>not delete files from your project folder</strong> because this is a frontend-only review dashboard.</p><div className="modal-list">{pairs.filter((pair) => marked.includes(pair.id)).map((pair) => <div key={pair.id}><Trash2 size={13} /><code>{pair.candidate}</code></div>)}</div><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmDelete(false)}>Keep reviewing</button><button className="delete-button" onClick={deleteMarked}><Trash2 size={15} /> Confirm removal</button></div></div></section></div>}
+        {confirmDelete && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmDelete(false); }}><section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title"><div className="modal-icon"><AlertTriangle size={21} /></div><div className="modal-copy"><div className="section-index">FINAL REVIEW STEP</div><h2 id="delete-title">Delete {marked.length} marked {marked.length === 1 ? "duplicate" : "duplicates"}?</h2><p>This will copy the selected files into an <strong>Evidence Room Recovery</strong> folder inside the chosen directory, then delete the originals using your browser-granted permission.</p><div className="modal-list">{activePairs.filter((pair) => marked.includes(pair.id)).map((pair) => <div key={pair.id}><Trash2 size={13} /><code>{pair.candidate}</code></div>)}</div><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmDelete(false)}>Keep reviewing</button><button className="delete-button" onClick={deleteMarked}><Trash2 size={15} /> Confirm removal</button></div></div></section></div>}
 
 
-        <section className="method-section" id="method"><div className="method-mark"><img src="/manus-storage/evidence-room-mark_16396f01.png" alt="" /></div><div><div className="section-index">02 / METHOD NOTE</div><h2>Marked is not deleted.</h2><p>This workspace is a review layer over your project files. A mark only records your intention to remove a redundant copy; the original files stay untouched until you choose to act elsewhere.</p></div><Stamp /></section>
+        <section className="method-section" id="method"><div className="method-mark"><img src="/manus-storage/evidence-room-mark_16396f01.png" alt="" /></div><div><div className="section-index">02 / METHOD NOTE</div><h2>Local permission, clear intent.</h2><p>Choose a folder to scan files on your device. After you mark candidates, the app copies them into an Evidence Room Recovery folder and removes the originals only after your confirmation. Nothing leaves your device.</p></div><Stamp>LOCAL-FIRST</Stamp></section>
         <footer className="footer"><span>Evidence Room / Picture review desk</span><span>121 files · 05 flagged pairs · read-only</span></footer>
       </main>
     </div>
