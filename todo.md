@@ -1,9 +1,6 @@
-# Evidence Room v1.0 release
+# GitHub Pages pnpm fix
 
-- [x] Add an About view explaining the local-first workflow.
-- [x] Add Copyright and GPL information with links to the repository license.
-- [x] Label the interface and package metadata as v1.0.
-- [x] Verify the production build and release assets.
-- [x] Publish the code to GitHub as `Evidence_Room`.
-- [x] Create a Notion checklist under `Projects → Evidence Room`.
-- [x] Save a final checkpoint and deliver the release links.
+- [x] Inspect the workflow and package.json pnpm declarations.
+- [x] Remove the duplicate pnpm version from the GitHub Action.
+- [x] Run type checking and the GitHub Pages production build.
+- [x] Verify the workflow has one pnpm source of truth and save a checkpoint.
