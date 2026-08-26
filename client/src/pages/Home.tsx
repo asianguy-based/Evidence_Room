@@ -1,215 +1,145 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  Archive,
-  ArrowDownToLine,
-  Check,
-  ChevronRight,
-  CircleHelp,
-  ClipboardCheck,
-  FileImage,
-  Filter,
-  Info,
-  Layers3,
-  Menu,
-  RotateCcw,
-  Search,
-  ShieldCheck,
-  SlidersHorizontal,
-  Sparkles,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Archive, Check, CircleHelp, FileImage, Menu, RotateCcw, ScanSearch, ShieldCheck, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import { browserSupportsLocalFiles, moveToRecoveryAndDelete, scanLocalFolder, type LocalPair } from "@/lib/localCleanup";
-import { useIsMobile } from "@/hooks/useMobile";
+import { browserSupportsLocalFiles, deleteNow, moveToRecyclingBin, scanLocalFolder, type LocalPair } from "@/lib/localCleanup";
 
-// Evidence Room design reminder: show the image comparison as the primary artifact.
-// Warm bone paper, ink-black type, monospaced filenames, Archive Vermilion review stamps.
+// Evidence Room design reminder: quiet archive desk, warm paper, ink-black type, Archive Vermilion actions.
 
-type MatchType = "Exact duplicate" | "Visual near-duplicate";
-type ReviewPair = {
-  id: number;
-  candidate: string;
-  retained: string;
-  type: MatchType;
-  subject: string;
-  reason: string;
-  size: string;
-  candidateMeta: string;
-  retainedMeta: string;
-  preview: string;
-};
+type ActionMode = "recycle" | "delete";
+type ReviewPair = LocalPair & { sizeLabel: string; candidateMeta: string; retainedMeta: string };
+type LogEntry = { id: number; label: string; detail: string };
 
-const pairs: ReviewPair[] = [
-  { id: 1, candidate: "1000015909.jpg", retained: "1000016739.jpg", type: "Exact duplicate", subject: "Cybersecurity GitHub projects", reason: "Identical SHA-256 hash. Same screenshot content and dimensions.", size: "1.8 MB", candidateMeta: "JPG · 1170 × 2532", retainedMeta: "JPG · 1170 × 2532", preview: "/manus-storage/cluster-01_e601e252.jpg" },
-  { id: 2, candidate: "1000016733.jpg", retained: "1000017610.jpg", type: "Visual near-duplicate", subject: "How To Build Your Own AI Agent In 10 Minutes", reason: "Same capture with matching composition; retained copy is the higher-resolution evidence.", size: "1.2 MB", candidateMeta: "JPG · 1080 × 2340", retainedMeta: "JPG · 1170 × 2532", preview: "/manus-storage/cluster-02_8a3a1976.jpg" },
-  { id: 3, candidate: "1000017607.jpg", retained: "31dc430b-4066-45f4-a44c-3917502f72f3-1_all_13897.png", type: "Visual near-duplicate", subject: "8 Steps to Set Up Your Entire Course", reason: "Same course graphic; PNG preserves the clearest retained version.", size: "2.4 MB", candidateMeta: "JPG · 1080 × 2340", retainedMeta: "PNG · 1200 × 2667", preview: "/manus-storage/cluster-03_6fefa601.jpg" },
-  { id: 4, candidate: "1000022070.jpg", retained: "1000022232.jpg", type: "Visual near-duplicate", subject: "13 Free Claude Courses & Certification", reason: "Same educational list graphic with a near-identical crop.", size: "980 KB", candidateMeta: "JPG · 1080 × 2340", retainedMeta: "JPG · 1170 × 2532", preview: "/manus-storage/cluster-04_4c0214e8.jpg" },
-  { id: 5, candidate: "31dc430b-4066-45f4-a44c-3917502f72f3-1_all_15660.jpg", retained: "1000022298.jpg", type: "Visual near-duplicate", subject: "9 Free University Courses", reason: "Same course roundup; retained copy has the cleaner source dimensions.", size: "1.1 MB", candidateMeta: "JPG · 1080 × 2340", retainedMeta: "JPG · 1170 × 2532", preview: "/manus-storage/cluster-05_3ff07f10.jpg" },
-];
-
-function Stamp({ children = "REVIEW ONLY" }: { children?: string }) {
-  return <span className="review-stamp">{children}</span>;
-}
-
-function EvidenceFrame({ file, retained, meta, index, preview }: { file: string; retained?: boolean; meta: string; index: number; preview: string }) {
-  return (
-    <div className={`evidence-frame ${retained ? "retained" : "candidate"}`}>
-      <div className="frame-topline"><span>{retained ? "RETAIN" : "CANDIDATE"}</span><span>{String(index).padStart(2, "0")}</span></div>
-      <div className="frame-art real-preview" aria-label={`Validated image comparison for ${file}`}>
-        <img src={preview} alt="Validated side-by-side image comparison" />
-        <div className="preview-tag">{retained ? "CURATED / ORIGINAL" : "CAPTURE / COPY"}</div>
-        <div className="art-footer">EVIDENCE ROOM · IMAGE REVIEW</div>
-      </div>
-      <div className="frame-label"><FileImage size={14} /><span>{file}</span></div>
-      <div className="frame-meta">{meta}</div>
-    </div>
-  );
-}
+const toReviewPair = (pair: LocalPair): ReviewPair => ({
+  ...pair,
+  sizeLabel: `${Math.round(pair.candidate.size / 1024)} KB`,
+  candidateMeta: `LOCAL · ${pair.candidate.path}`,
+  retainedMeta: `LOCAL · ${pair.retained.path}`,
+});
 
 export default function Home() {
-  useEffect(() => { if (!("serviceWorker" in navigator)) return; if (import.meta.env.PROD) navigator.serviceWorker.register("/sw.js").catch(() => undefined); else navigator.serviceWorker.getRegistrations().then((registrations) => registrations.forEach((registration) => registration.unregister())); }, []);
-  const isMobile = useIsMobile();
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"All pairs" | MatchType>("All pairs");
+  const [folder, setFolder] = useState<FileSystemDirectoryHandle | null>(null);
+  const [folderName, setFolderName] = useState("");
+  const [pairs, setPairs] = useState<ReviewPair[]>([]);
+  const [records, setRecords] = useState<LocalPair[]>([]);
+  const [imageCount, setImageCount] = useState(0);
   const [marked, setMarked] = useState<number[]>([]);
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [progress, setProgress] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [deletedIds, setDeletedIds] = useState<number[]>([]);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [lastDeleted, setLastDeleted] = useState<number[]>([]);
-  const [localPairs, setLocalPairs] = useState<ReviewPair[]>([]);
-  const [localPairRecords, setLocalPairRecords] = useState<LocalPair[]>([]);
-  const [localScanActive, setLocalScanActive] = useState(false);
-  const [localFolderName, setLocalFolderName] = useState("");
-  const [localRoot, setLocalRoot] = useState<FileSystemDirectoryHandle | null>(null);
-  const [scanProgress, setScanProgress] = useState("");
-  const [localImageCount, setLocalImageCount] = useState(0);
+  const [confirmMode, setConfirmMode] = useState<ActionMode | null>(null);
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const [logId, setLogId] = useState(1);
+  const isMobile = window.matchMedia?.("(max-width: 767px)").matches ?? false;
 
-  useEffect(() => { if (!isMobile) setSidebarOpen(false); }, [isMobile]);
-  useEffect(() => { if (!sidebarOpen) return; const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setSidebarOpen(false); }; window.addEventListener("keydown", closeOnEscape); return () => window.removeEventListener("keydown", closeOnEscape); }, [sidebarOpen]);
+  useEffect(() => {
+    const closeDesktop = () => { if (window.innerWidth > 650) setSidebarOpen(false); };
+    const closeEscape = (event: KeyboardEvent) => { if (event.key === "Escape") { setSidebarOpen(false); setConfirmMode(null); } };
+    window.addEventListener("resize", closeDesktop);
+    window.addEventListener("keydown", closeEscape);
+    return () => { window.removeEventListener("resize", closeDesktop); window.removeEventListener("keydown", closeEscape); };
+  }, []);
 
-  const activePairs = localScanActive ? localPairs : pairs;
-  const visiblePairs = useMemo(() => activePairs.filter((pair) => !deletedIds.includes(pair.id)).filter((pair) => {
-    const haystack = `${pair.candidate} ${pair.retained} ${pair.subject}`.toLowerCase();
-    return (filter === "All pairs" || pair.type === filter) && haystack.includes(query.toLowerCase());
-  }), [activePairs, filter, query, deletedIds]);
-
-  const toggleMark = (id: number) => {
-    setMarked((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  const addLog = (label: string, detail: string) => {
+    setLog((current) => [...current, { id: logId, label, detail }]);
+    setLogId((current) => current + 1);
   };
 
-  const openDeletionFlow = () => {
-    if (!localScanActive) { chooseLocalFolder(); return; }
-    if (!marked.length) { toast.info("Mark at least one duplicate first", { description: "Use the Mark for review buttons, then return here to delete the selected files." }); return; }
-    setConfirmDelete(true);
-  };
-
-  const deleteMarked = async () => {
-    if (!marked.length) return;
-    if (localScanActive && localRoot) {
-      const selected = localPairRecords.filter((pair) => marked.includes(pair.id));
-      try {
-        for (const pair of selected) await moveToRecoveryAndDelete(pair.candidate, localRoot);
-        const refreshed = await scanLocalFolder(localRoot);
-        const refreshedPairs = refreshed.pairs.map((pair: LocalPair): ReviewPair => ({ id: pair.id, candidate: pair.candidate.name, retained: pair.retained.name, type: pair.type, subject: pair.subject, reason: pair.reason, size: `${Math.round(pair.candidate.size / 1024)} KB`, candidateMeta: `LOCAL · ${pair.candidate.path}`, retainedMeta: `LOCAL · ${pair.retained.path}`, preview: "" }));
-        setLocalPairs(refreshedPairs);
-        setLocalPairRecords(refreshed.pairs);
-        setLocalImageCount(refreshed.images.length);
-        setDeletedIds([]);
-        toast.success(`${selected.length} duplicate ${selected.length === 1 ? "file was" : "files were"} deleted`, { description: "The folder was rescanned, so removed candidates will not reappear." });
-      } catch (error) {
-        toast.error("Deletion stopped before all files were processed", { description: error instanceof Error ? error.message : "Check the folder permission and try again." });
-        return;
-      }
-    } else {
-      setConfirmDelete(false);
-      toast.info("Choose a local folder before deleting", { description: "The app will request read/write permission and move approved files to Evidence Room Recovery first." });
-      return;
-    }
-    if (!localScanActive) {
-      setDeletedIds((current) => Array.from(new Set([...current, ...marked])));
-      setLastDeleted(marked);
-    } else {
-      setLastDeleted([]);
-    }
+  const clearWorkspace = () => {
+    setFolder(null);
+    setFolderName("");
+    setPairs([]);
+    setRecords([]);
+    setImageCount(0);
     setMarked([]);
-    setConfirmDelete(false);
+    setProgress("");
+    setConfirmMode(null);
   };
 
-  const chooseLocalFolder = async () => {
+  const chooseFolder = async () => {
     if (!browserSupportsLocalFiles()) { toast.error("This browser cannot access local folders", { description: "Use the latest Chrome or Edge over HTTPS or localhost." }); return; }
     try {
-      const root = await (window as any).showDirectoryPicker({ mode: "readwrite" });
-      setScanProgress("Reading image files…");
-      const result = await scanLocalFolder(root, (count) => setScanProgress(`Reading image files · ${count}`));
-      const converted = result.pairs.map((pair: LocalPair): ReviewPair => ({ id: pair.id, candidate: pair.candidate.name, retained: pair.retained.name, type: pair.type, subject: pair.subject, reason: pair.reason, size: `${Math.round(pair.candidate.size / 1024)} KB`, candidateMeta: `LOCAL · ${pair.candidate.path}`, retainedMeta: `LOCAL · ${pair.retained.path}`, preview: "" }));
-      setLocalRoot(root); setLocalFolderName(root.name); setLocalImageCount(result.images.length); setLocalPairs(converted); setLocalPairRecords(result.pairs); setLocalScanActive(true); setDeletedIds([]); setMarked([]); setScanProgress("");
-      toast.success(`Scan complete · ${result.images.length} image files`, { description: `${converted.length} duplicate pairs are ready for review.` });
+      const selected = await (window as any).showDirectoryPicker({ mode: "readwrite" });
+      setFolder(selected);
+      setFolderName(selected.name);
+      setPairs([]);
+      setRecords([]);
+      setImageCount(0);
+      setMarked([]);
+      addLog("FOLDER CHOSEN", selected.name);
+      toast.success("Folder ready", { description: "Press Scan to inspect image files." });
     } catch (error) {
-      setScanProgress("");
-      if ((error as DOMException)?.name !== "AbortError") toast.error("The folder scan could not be completed", { description: error instanceof Error ? error.message : "Try choosing the folder again." });
+      if ((error as DOMException)?.name !== "AbortError") toast.error("The folder could not be opened", { description: error instanceof Error ? error.message : "Try again." });
     }
   };
 
-  const undoDelete = () => {
-    setDeletedIds((current) => current.filter((id) => !lastDeleted.includes(id)));
-    setLastDeleted([]);
-    toast("Review deletion undone");
+  const scan = async () => {
+    if (!folder) { toast.info("Choose a local folder first"); return; }
+    try {
+      setProgress("Scanning image files…");
+      const result = await scanLocalFolder(folder, (count) => setProgress(`Scanning image files · ${count}`));
+      setPairs(result.pairs.map(toReviewPair));
+      setRecords(result.pairs);
+      setImageCount(result.images.length);
+      setMarked([]);
+      setProgress("");
+      addLog("SCAN COMPLETE", `${result.images.length} image files · ${result.pairs.length} pairs found`);
+      toast.success("Scan complete", { description: `${result.pairs.length} duplicate pairs need review.` });
+    } catch (error) {
+      setProgress("");
+      addLog("SCAN FAILED", error instanceof Error ? error.message : "The folder could not be scanned");
+      toast.error("The scan could not be completed", { description: error instanceof Error ? error.message : "Try again." });
+    }
   };
 
-  const markAll = () => {
-    setMarked(visiblePairs.map((pair) => pair.id));
-    toast.success("All visible candidates marked for review", { description: "No files have been deleted." });
+  const visiblePairs = useMemo(() => pairs, [pairs]);
+  const toggleMark = (id: number) => setMarked((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  const markVisible = () => { setMarked(visiblePairs.map((pair) => pair.id)); addLog("CANDIDATES MARKED", `${visiblePairs.length} visible pair${visiblePairs.length === 1 ? "" : "s"}`); };
+  const reset = () => { addLog("RESET", "Workspace returned to the starting state"); clearWorkspace(); toast("Reset complete", { description: "No scan data was saved." }); };
+
+  const execute = async () => {
+    if (!folder || !confirmMode || marked.length === 0) return;
+    const selected = records.filter((pair) => marked.includes(pair.id));
+    try {
+      for (const pair of selected) {
+        if (confirmMode === "recycle") await moveToRecyclingBin(pair.candidate, folder);
+        else await deleteNow(pair.candidate);
+      }
+      addLog(confirmMode === "recycle" ? "MOVED TO RECYCLING BIN" : "DELETED NOW", `${selected.length} file${selected.length === 1 ? "" : "s"} processed`);
+      toast.success(confirmMode === "recycle" ? "Moved to recycling bin" : "Deleted permanently", { description: "The workspace has been cleared for a new session." });
+      clearWorkspace();
+    } catch (error) {
+      addLog("ACTION STOPPED", error instanceof Error ? error.message : "Some files could not be processed");
+      toast.error("The action stopped", { description: error instanceof Error ? error.message : "Check the folder permission." });
+      setConfirmMode(null);
+    }
   };
 
-  return (
-    <div className="app-shell">
-      <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
-        <div className="brand-lockup">
-          <img src="/manus-storage/evidence-room-mark_16396f01.png" alt="Evidence Room mark" className="brand-mark" />
-          <div><div className="brand-name">Evidence<br /><em>Room</em></div><div className="brand-kicker">picture review desk</div></div>
-        </div>
-        <div className="rail-rule" />
-        <nav className="rail-nav" aria-label="Primary navigation">
-          <a className="rail-link active" href="#review" onClick={() => setSidebarOpen(false)}><Layers3 size={17} /><span>Review queue</span><b>05</b></a>
-          <a className="rail-link" href="#overview" onClick={() => setSidebarOpen(false)}><Archive size={17} /><span>Scan overview</span></a>
-          <a className="rail-link" href="#method" onClick={() => setSidebarOpen(false)}><ShieldCheck size={17} /><span>How this works</span></a>
-        </nav>
-        <div className="rail-note"><div className="tiny-label">CURRENT SCAN</div><p>{localScanActive ? localFolderName : "Project picture inventory"}</p><span>{localScanActive ? "local files · read/write permission" : "demo data · choose a folder to begin"}</span></div>
-        <div className="rail-bottom"><div className="rail-rule" /><button className="text-button" onClick={() => toast.info("The report is ready to download from your project files.")}><ArrowDownToLine size={15} /> Export report</button></div>
-      </aside>
+  const stats = folder ? [
+    { label: "FILES SCANNED", value: imageCount, note: "this session" },
+    { label: "PAIRS FOUND", value: pairs.length, note: "to review" },
+    { label: "MARKED", value: marked.length, note: "ready for action" },
+  ] : [
+    { label: "FILES SCANNED", value: "—", note: "choose a folder" },
+    { label: "PAIRS FOUND", value: "—", note: "scan not started" },
+    { label: "MARKED", value: "—", note: "nothing selected" },
+  ];
 
-      {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
-      <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? "Close navigation" : "Open navigation"} aria-expanded={sidebarOpen}><Menu size={20} /></button><div className="breadcrumb"><span>PROJECT FILES</span><ChevronRight size={14} /><strong>PICTURE DELETION REVIEW</strong></div><div className="top-actions"><span className="read-only"><ShieldCheck size={15} /> {localScanActive ? "LOCAL PERMISSION MODE" : "DEMO REVIEW MODE"}</span><button className="top-delete-button" onClick={openDeletionFlow}><Trash2 size={14} /> Delete</button><button className="icon-button" onClick={() => toast.info(localScanActive ? "Deletion is local and permissioned." : "Choose a local folder to enable actual file operations.")} aria-label="Help"><CircleHelp size={18} /></button></div></header>
-
-        <section className="hero" id="overview">
-          <div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot" /> SCAN COMPLETE · 25 AUG 2026</div><h1>Five pairs<br /><i>need your eyes.</i></h1><p>We found one exact duplicate and four visually similar pairs across your picture files. Mark what can go; keep the final call human.</p><div className="hero-actions"><button className="primary-button" onClick={chooseLocalFolder}><Archive size={16} /> {localScanActive ? "Scan another folder" : "Choose a local folder"}</button><button className="secondary-button" onClick={markAll}><ClipboardCheck size={16} /> Mark visible candidates</button><button className="secondary-button" onClick={() => { setMarked([]); toast("Review marks cleared"); }}><RotateCcw size={16} /> Reset marks</button><button className="delete-button hero-delete" onClick={openDeletionFlow}><Trash2 size={16} /> Delete duplicates</button>{localScanActive && <span className="local-scan-note"><ShieldCheck size={14} /> {localFolderName} · local scan{scanProgress ? ` · ${scanProgress}` : ""}</span>}</div></div>
-          <div className="hero-art"><img src="/manus-storage/evidence-room-contact-sheet_22be963b.jpg" alt="Archival contact sheet on a desk" /><div className="hero-art-overlay" /><div className="hero-caption"><span>FIELD NOTE 01</span><strong>Visual redundancy is a human decision.</strong></div></div>
-        </section>
-
-        <section className="stats-strip" aria-label="Scan summary"><div className="stat"><span>FILES SCANNED</span><strong>{localScanActive ? localImageCount : 121}</strong><small>picture files</small></div><div className="stat"><span>EXACT DUPLICATES</span><strong>{localScanActive ? localPairs.filter((pair) => pair.type === "Exact duplicate").length.toString().padStart(2, "0") : "01"}</strong><small>pair found</small></div><div className="stat"><span>NEAR-DUPLICATES</span><strong>{localScanActive ? localPairs.filter((pair) => pair.type === "Visual near-duplicate").length.toString().padStart(2, "0") : "04"}</strong><small>pairs to review</small></div><div className="stat stat-accent"><span>MARKED TO REVIEW</span><strong>{String(marked.length).padStart(2, "0")}</strong><small>of {localScanActive ? localPairs.length : 5} candidates</small></div></section>
-
-        <section className="queue-section" id="review">
-          <div className="section-heading"><div><div className="section-index"><img src="/manus-storage/evidence-room-mark_16396f01.png" alt="" className="section-mark" /> 01 / EVIDENCE QUEUE</div><h2>Compare before you clear.</h2></div><div className="queue-count">{visiblePairs.length} {visiblePairs.length === 1 ? "pair" : "pairs"} shown</div></div>
-          <div className="toolbar"><div className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search filenames or subjects" aria-label="Search filenames or subjects" />{query && <button onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}</div><div className="filter-group"><Filter size={15} /><button className={filter === "All pairs" ? "selected" : ""} onClick={() => setFilter("All pairs")}>All pairs</button><button className={filter === "Exact duplicate" ? "selected" : ""} onClick={() => setFilter("Exact duplicate")}>Exact</button><button className={filter === "Visual near-duplicate" ? "selected" : ""} onClick={() => setFilter("Visual near-duplicate")}>Visual</button></div></div>
-          <div className="deletion-control"><div className="deletion-copy"><Trash2 size={17} /><div><strong>Delete approved duplicates</strong><span>{localScanActive ? (marked.length ? `${marked.length} selected · recovery copy will be created first` : "Mark candidates in the queue before deleting") : "Choose a local folder to enable actual file deletion"}</span></div></div><button className="delete-button" onClick={openDeletionFlow}>{localScanActive && marked.length ? "Delete selected" : localScanActive ? "Select files first" : "Choose folder & scan"}</button></div>
-          {marked.length > 0 && <div className="bulk-action-bar"><div><strong>{marked.length} {marked.length === 1 ? "candidate" : "candidates"} selected</strong><span>{localScanActive ? "Files will be moved to Evidence Room Recovery, then removed." : "Select a local folder to delete actual files."}</span></div><button className="delete-button" onClick={() => localScanActive ? setConfirmDelete(true) : chooseLocalFolder()}><Trash2 size={15} /> {localScanActive ? "Delete marked files" : "Choose folder to enable deletion"}</button></div>}
-          {lastDeleted.length > 0 && <div className="undo-bar"><span><Check size={15} /> {lastDeleted.length} item{lastDeleted.length === 1 ? "" : "s"} removed from this queue.</span><button onClick={undoDelete}><RotateCcw size={14} /> Undo queue removal</button></div>}
-          {marked.length > 0 && <div className="mobile-delete-dock"><span><Trash2 size={15} /> {marked.length} selected</span><button className="delete-button" onClick={openDeletionFlow}>{localScanActive ? "Delete selected" : "Choose folder first"}</button></div>}
-
-          <div className="pair-list">{visiblePairs.map((pair) => { const isMarked = marked.includes(pair.id); return <article className={`pair-card ${isMarked ? "marked" : ""}`} key={pair.id}><div className="pair-top"><div className="pair-title"><span className="pair-number">PAIR {String(pair.id).padStart(2, "0")}</span><h3>{pair.subject}</h3><span className={`match-badge ${pair.type === "Exact duplicate" ? "exact" : "visual"}`}>{pair.type === "Exact duplicate" ? "EXACT MATCH" : "VISUAL MATCH"}</span></div><div className="pair-actions"><button className={`mark-button ${isMarked ? "is-marked" : ""}`} onClick={() => toggleMark(pair.id)}>{isMarked ? <Check size={15} /> : <Trash2 size={15} />}{isMarked ? "Marked" : "Mark for review"}</button><button className="expand-button" onClick={() => setExpanded(expanded === pair.id ? null : pair.id)} aria-expanded={expanded === pair.id}>{expanded === pair.id ? "Close detail" : "View detail"}<ChevronRight size={15} className={expanded === pair.id ? "rotate-90" : ""} /></button></div></div><div className="evidence-line"><EvidenceFrame file={pair.candidate} meta={pair.candidateMeta} index={pair.id} preview={pair.preview} /><div className="comparison-connector"><span className="connector-label">{pair.type === "Exact duplicate" ? "100%" : "SIMILAR"}</span><div className="connector-line" /><ChevronRight size={16} /></div><EvidenceFrame file={pair.retained} retained meta={pair.retainedMeta} index={pair.id} preview={pair.preview} /></div><div className="pair-footer"><div><span className="footer-label">REASON FOR REVIEW</span><p>{pair.reason}</p></div><div className="retained-note"><Check size={14} /><span>Suggested keep: <b>{pair.retained}</b></span></div></div>{expanded === pair.id && <div className="detail-drawer"><div><span className="footer-label">CANDIDATE</span><code>{pair.candidate}</code><small>{pair.candidateMeta}</small></div><div><span className="footer-label">SUGGESTED KEEP</span><code>{pair.retained}</code><small>{pair.retainedMeta}</small></div><div><span className="footer-label">EST. SPACE</span><code>{pair.size}</code><small>candidate file size</small></div></div>}</article>; })}</div>
-          {visiblePairs.length === 0 && <div className="empty-state"><Sparkles size={24} /><h3>{deletedIds.length === pairs.length ? "Review queue cleared." : "No pairs match that search."}</h3><p>{deletedIds.length === pairs.length ? "All selected duplicates were removed from this workspace." : "Try a different filename, subject, or filter."}</p>{deletedIds.length === pairs.length && lastDeleted.length > 0 && <button className="secondary-button empty-undo" onClick={undoDelete}><RotateCcw size={14} /> Undo last removal</button>}</div>}
-        </section>
-
-        {confirmDelete && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmDelete(false); }}><section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title"><div className="modal-icon"><AlertTriangle size={21} /></div><div className="modal-copy"><div className="section-index">FINAL REVIEW STEP</div><h2 id="delete-title">Delete {marked.length} marked {marked.length === 1 ? "duplicate" : "duplicates"}?</h2><p>This will copy the selected files into an <strong>Evidence Room Recovery</strong> folder inside the chosen directory, then delete the originals using your browser-granted permission.</p><div className="modal-list">{activePairs.filter((pair) => marked.includes(pair.id)).map((pair) => <div key={pair.id}><Trash2 size={13} /><code>{pair.candidate}</code></div>)}</div><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmDelete(false)}>Keep reviewing</button><button className="delete-button" onClick={deleteMarked}><Trash2 size={15} /> Confirm removal</button></div></div></section></div>}
-
-
-        <section className="method-section" id="method"><div className="method-mark"><img src="/manus-storage/evidence-room-mark_16396f01.png" alt="" /></div><div><div className="section-index">02 / METHOD NOTE</div><h2>Local permission, clear intent.</h2><p>Choose a folder to scan files on your device. After you mark candidates, the app copies them into an Evidence Room Recovery folder and removes the originals only after your confirmation. Nothing leaves your device.</p></div><Stamp>LOCAL-FIRST</Stamp></section>
-        <footer className="footer"><span>Evidence Room / Picture review desk</span><span>121 files · 05 flagged pairs · read-only</span></footer>
-      </main>
-    </div>
-  );
+  return <div className="app-shell session-app">
+    <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
+      <div className="brand-lockup"><img src="/manus-storage/evidence-room-mark_16396f01.png" alt="Evidence Room mark" className="brand-mark" /><div><div className="brand-name">Evidence<br /><em>Room</em></div><div className="brand-kicker">picture cleanup desk</div></div></div>
+      <div className="rail-rule" />
+      <div className="session-rail-heading"><span>SESSION LOG</span><small>not saved</small></div>
+      <div className="session-log" aria-live="polite">{log.length === 0 ? <div className="log-empty">Actions from this session will appear here. Closing this page clears the log.</div> : log.map((entry) => <div className="log-entry" key={entry.id}><span className="log-dot" /><div><strong>{entry.label}</strong><small>{entry.detail}</small></div></div>)}</div>
+      <div className="rail-bottom"><div className="rail-rule" /><div className="privacy-note"><ShieldCheck size={14} /><span>No scan data is saved.</span></div></div>
+    </aside>
+    {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close session log" />}
+    <main className="workspace">
+      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? "Close session log" : "Open session log"} aria-expanded={sidebarOpen}><Menu size={20} /></button><div className="breadcrumb"><span>EVIDENCE ROOM</span><b> / </b><strong>LOCAL CLEANUP</strong></div><div className="top-actions"><span className="no-save"><ShieldCheck size={14} /> SESSION ONLY</span><button className="icon-button" onClick={() => toast.info("Choose a folder, scan, mark candidates, then recycle or delete.")} aria-label="How the cleanup works"><CircleHelp size={18} /></button></div></header>
+      <section className="start-hero"><div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot" /> NOTHING LOADED · READY WHEN YOU ARE</div><h1>Clear the clutter.<br /><i>Keep the control.</i></h1><p>Everything happens locally in this browser session. Choose a folder, scan its images, mark the candidates, then move them to a recovery bin or delete them now.</p><div className="step-row"><span className={!folder ? "current" : "done"}><b>01</b> CHOOSE A LOCAL FOLDER</span><span className={folder && pairs.length === 0 ? "current" : pairs.length > 0 ? "done" : ""}><b>02</b> SCAN</span><span className={pairs.length > 0 ? "current" : ""}><b>03</b> MARK VISIBLE CANDIDATES</span><span className={marked.length > 0 ? "current" : ""}><b>04</b> RECYCLE OR DELETE</span></div><div className="hero-actions"><button className="primary-button" onClick={chooseFolder}><Archive size={16} /> {folder ? "Choose another folder" : "Choose a local folder"}</button><button className="secondary-button" onClick={scan} disabled={!folder || Boolean(progress)}><ScanSearch size={16} /> {progress || "Scan"}</button><button className="secondary-button" onClick={markVisible} disabled={!pairs.length}><Check size={16} /> Mark visible candidates</button><button className="reset-button" onClick={reset}><RotateCcw size={16} /> Reset</button></div></div><div className="privacy-card"><ShieldCheck size={22} /><span>LOCAL-FIRST</span><strong>No data is saved.</strong><p>The log, scan results, and file handles disappear when this page is closed.</p></div></section>
+      <section className="stats-strip" aria-label="Current session summary">{stats.map((stat) => <div className="stat" key={stat.label}><span>{stat.label}</span><strong>{stat.value}</strong><small>{stat.note}</small></div>)}</section>
+      <section className="review-section"><div className="section-heading"><div><div className="section-index"><FileImage size={15} /> 01 / REVIEW QUEUE</div><h2>{folder ? `${pairs.length ? "Mark what can go." : "Scan to find duplicates."}` : "Start with a folder."}</h2></div><span className="folder-chip">{folderName || "NO FOLDER SELECTED"}</span></div>{pairs.length > 0 && <div className="action-panel"><div><strong>{marked.length ? `${marked.length} candidate${marked.length === 1 ? "" : "s"} marked` : "Choose candidates to act on"}</strong><span>{marked.length ? "Select Move to recycling bin or Delete now." : "Each pair stays on your device until you decide."}</span></div><div className="action-buttons"><button className="recycle-button" disabled={!marked.length} onClick={() => setConfirmMode("recycle")}><Archive size={15} /> Move to recycling bin</button><button className="delete-now-button" disabled={!marked.length} onClick={() => setConfirmMode("delete")}><Trash2 size={15} /> Delete now</button></div></div>}{pairs.length === 0 ? <div className="blank-queue"><ScanSearch size={28} /><h3>{folder ? "Ready to scan this folder" : "Nothing has been scanned"}</h3><p>{folder ? "Use Scan above to inspect image files. No files are read until you choose that action." : "Choose a local folder to begin. The page starts empty by design."}</p></div> : <div className="pair-list">{pairs.map((pair) => { const selected = marked.includes(pair.id); return <article className={`pair-card ${selected ? "marked" : ""}`} key={pair.id}><div className="pair-card-top"><div><span className="pair-number">PAIR {String(pair.id).padStart(2, "0")}</span><h3>{pair.subject}</h3><span className={`match-badge ${pair.type === "Exact duplicate" ? "exact" : "visual"}`}>{pair.type === "Exact duplicate" ? "EXACT MATCH" : "VISUAL MATCH"}</span></div><button className={`mark-button ${selected ? "selected" : ""}`} onClick={() => toggleMark(pair.id)}>{selected ? <Check size={15} /> : <Trash2 size={15} />}{selected ? "Marked" : "Mark for review"}</button></div><div className="pair-details"><div><span>CANDIDATE TO REMOVE</span><code>{pair.candidate.name}</code><small>{pair.candidateMeta}</small></div><div><span>SUGGESTED KEEP</span><code>{pair.retained.name}</code><small>{pair.retainedMeta}</small></div><div><span>EST. SPACE</span><code>{pair.sizeLabel}</code><small>{pair.reason}</small></div></div></article>; })}</div>}</section>
+      <footer className="footer"><span>Evidence Room / Local cleanup</span><span>Session-only · no data saved</span></footer>
+      {marked.length > 0 && <div className="mobile-action-dock"><span><Check size={15} /> {marked.length} selected</span><div><button className="recycle-button" onClick={() => setConfirmMode("recycle")}><Archive size={14} /> Recycle</button><button className="delete-now-button" onClick={() => setConfirmMode("delete")}><Trash2 size={14} /> Delete now</button></div></div>}
+      {confirmMode && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmMode(null); }}><section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><div className="modal-icon">{confirmMode === "recycle" ? <Archive size={22} /> : <Trash2 size={22} />}</div><div><span className="section-index">FINAL REVIEW STEP</span><h2 id="confirm-title">{confirmMode === "recycle" ? "Move marked files to recycling bin?" : "Delete marked files now?"}</h2><p>{confirmMode === "recycle" ? "The selected files will be copied into an Evidence Room Recycling Bin folder inside the chosen directory, then removed from their original locations." : "The selected files will be permanently removed from their original locations. This cannot be undone."}</p><div className="modal-list">{records.filter((pair) => marked.includes(pair.id)).map((pair) => <div key={pair.id}><FileImage size={13} /><code>{pair.candidate.name}</code></div>)}</div><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmMode(null)}>Keep reviewing</button><button className={confirmMode === "recycle" ? "recycle-button" : "delete-now-button"} onClick={execute}>{confirmMode === "recycle" ? "Move to recycling bin" : "Delete now"}</button></div></div></section></div>}
+    </main>
+  </div>;
 }
