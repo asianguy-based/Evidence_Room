@@ -1,6 +1,7 @@
-# GitHub Pages pnpm fix
+# Definitive GitHub Actions pnpm fix
 
-- [x] Inspect the workflow and package.json pnpm declarations.
-- [x] Remove the duplicate pnpm version from the GitHub Action.
-- [x] Run type checking and the GitHub Pages production build.
-- [x] Verify the workflow has one pnpm source of truth and save a checkpoint.
+- [ ] Inspect every workflow file on the GitHub `main` branch.
+- [ ] Find all `pnpm/action-setup` version declarations.
+- [ ] Remove duplicate version keys or disable stale duplicate workflows.
+- [ ] Verify package.json remains the only pnpm version source.
+- [ ] Push the definitive fix and save a checkpoint.
