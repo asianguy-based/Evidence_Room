@@ -112,7 +112,13 @@ export default function Home() {
       const selected = localPairRecords.filter((pair) => marked.includes(pair.id));
       try {
         for (const pair of selected) await moveToRecoveryAndDelete(pair.candidate, localRoot);
-        toast.success(`${selected.length} duplicate ${selected.length === 1 ? "file was" : "files were"} moved to Evidence Room Recovery`, { description: "The original candidates were removed after confirmation." });
+        const refreshed = await scanLocalFolder(localRoot);
+        const refreshedPairs = refreshed.pairs.map((pair: LocalPair): ReviewPair => ({ id: pair.id, candidate: pair.candidate.name, retained: pair.retained.name, type: pair.type, subject: pair.subject, reason: pair.reason, size: `${Math.round(pair.candidate.size / 1024)} KB`, candidateMeta: `LOCAL · ${pair.candidate.path}`, retainedMeta: `LOCAL · ${pair.retained.path}`, preview: "" }));
+        setLocalPairs(refreshedPairs);
+        setLocalPairRecords(refreshed.pairs);
+        setLocalImageCount(refreshed.images.length);
+        setDeletedIds([]);
+        toast.success(`${selected.length} duplicate ${selected.length === 1 ? "file was" : "files were"} deleted`, { description: "The folder was rescanned, so removed candidates will not reappear." });
       } catch (error) {
         toast.error("Deletion stopped before all files were processed", { description: error instanceof Error ? error.message : "Check the folder permission and try again." });
         return;
@@ -122,8 +128,12 @@ export default function Home() {
       toast.info("Choose a local folder before deleting", { description: "The app will request read/write permission and move approved files to Evidence Room Recovery first." });
       return;
     }
-    setDeletedIds((current) => Array.from(new Set([...current, ...marked])));
-    setLastDeleted(localScanActive ? [] : marked);
+    if (!localScanActive) {
+      setDeletedIds((current) => Array.from(new Set([...current, ...marked])));
+      setLastDeleted(marked);
+    } else {
+      setLastDeleted([]);
+    }
     setMarked([]);
     setConfirmDelete(false);
   };
@@ -188,6 +198,7 @@ export default function Home() {
           <div className="deletion-control"><div className="deletion-copy"><Trash2 size={17} /><div><strong>Delete approved duplicates</strong><span>{localScanActive ? (marked.length ? `${marked.length} selected · recovery copy will be created first` : "Mark candidates in the queue before deleting") : "Choose a local folder to enable actual file deletion"}</span></div></div><button className="delete-button" onClick={openDeletionFlow}>{localScanActive && marked.length ? "Delete selected" : localScanActive ? "Select files first" : "Choose folder & scan"}</button></div>
           {marked.length > 0 && <div className="bulk-action-bar"><div><strong>{marked.length} {marked.length === 1 ? "candidate" : "candidates"} selected</strong><span>{localScanActive ? "Files will be moved to Evidence Room Recovery, then removed." : "Select a local folder to delete actual files."}</span></div><button className="delete-button" onClick={() => localScanActive ? setConfirmDelete(true) : chooseLocalFolder()}><Trash2 size={15} /> {localScanActive ? "Delete marked files" : "Choose folder to enable deletion"}</button></div>}
           {lastDeleted.length > 0 && <div className="undo-bar"><span><Check size={15} /> {lastDeleted.length} item{lastDeleted.length === 1 ? "" : "s"} removed from this queue.</span><button onClick={undoDelete}><RotateCcw size={14} /> Undo queue removal</button></div>}
+          {marked.length > 0 && <div className="mobile-delete-dock"><span><Trash2 size={15} /> {marked.length} selected</span><button className="delete-button" onClick={openDeletionFlow}>{localScanActive ? "Delete selected" : "Choose folder first"}</button></div>}
 
           <div className="pair-list">{visiblePairs.map((pair) => { const isMarked = marked.includes(pair.id); return <article className={`pair-card ${isMarked ? "marked" : ""}`} key={pair.id}><div className="pair-top"><div className="pair-title"><span className="pair-number">PAIR {String(pair.id).padStart(2, "0")}</span><h3>{pair.subject}</h3><span className={`match-badge ${pair.type === "Exact duplicate" ? "exact" : "visual"}`}>{pair.type === "Exact duplicate" ? "EXACT MATCH" : "VISUAL MATCH"}</span></div><div className="pair-actions"><button className={`mark-button ${isMarked ? "is-marked" : ""}`} onClick={() => toggleMark(pair.id)}>{isMarked ? <Check size={15} /> : <Trash2 size={15} />}{isMarked ? "Marked" : "Mark for review"}</button><button className="expand-button" onClick={() => setExpanded(expanded === pair.id ? null : pair.id)} aria-expanded={expanded === pair.id}>{expanded === pair.id ? "Close detail" : "View detail"}<ChevronRight size={15} className={expanded === pair.id ? "rotate-90" : ""} /></button></div></div><div className="evidence-line"><EvidenceFrame file={pair.candidate} meta={pair.candidateMeta} index={pair.id} preview={pair.preview} /><div className="comparison-connector"><span className="connector-label">{pair.type === "Exact duplicate" ? "100%" : "SIMILAR"}</span><div className="connector-line" /><ChevronRight size={16} /></div><EvidenceFrame file={pair.retained} retained meta={pair.retainedMeta} index={pair.id} preview={pair.preview} /></div><div className="pair-footer"><div><span className="footer-label">REASON FOR REVIEW</span><p>{pair.reason}</p></div><div className="retained-note"><Check size={14} /><span>Suggested keep: <b>{pair.retained}</b></span></div></div>{expanded === pair.id && <div className="detail-drawer"><div><span className="footer-label">CANDIDATE</span><code>{pair.candidate}</code><small>{pair.candidateMeta}</small></div><div><span className="footer-label">SUGGESTED KEEP</span><code>{pair.retained}</code><small>{pair.retainedMeta}</small></div><div><span className="footer-label">EST. SPACE</span><code>{pair.size}</code><small>candidate file size</small></div></div>}</article>; })}</div>
           {visiblePairs.length === 0 && <div className="empty-state"><Sparkles size={24} /><h3>{deletedIds.length === pairs.length ? "Review queue cleared." : "No pairs match that search."}</h3><p>{deletedIds.length === pairs.length ? "All selected duplicates were removed from this workspace." : "Try a different filename, subject, or filter."}</p>{deletedIds.length === pairs.length && lastDeleted.length > 0 && <button className="secondary-button empty-undo" onClick={undoDelete}><RotateCcw size={14} /> Undo last removal</button>}</div>}

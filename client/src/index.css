@@ -94,3 +94,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 /* Persistent header action: keep deletion discoverable while routing it through the same guarded flow. */
 .top-delete-button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--verm); background: transparent; color: var(--verm-dark); padding: 7px 10px; font: 10px 'IBM Plex Mono'; letter-spacing: .05em; text-transform: uppercase; transition: all .18s var(--ease-out); }.top-delete-button:hover { color: white; background: var(--verm); }.top-delete-button:active { transform: scale(.98); }
 @media (max-width: 650px) { .top-actions { gap: 9px; }.top-delete-button { padding: 7px 8px; font-size: 9px; }.icon-button { padding: 4px; } }
+
+/* Selected-file action dock: keep the next step visible instead of requiring a search through the queue. */
+.mobile-delete-dock { position: fixed; left: max(20px, calc(250px + 24px)); right: 24px; bottom: 20px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; background: #2b2b27; color: #eee9df; border: 1px solid rgba(238,233,223,.18); box-shadow: 0 18px 40px rgba(37,36,32,.22); animation: reveal .18s var(--ease-out); }.mobile-delete-dock > span { display: inline-flex; align-items: center; gap: 8px; font: 11px 'IBM Plex Mono'; }.mobile-delete-dock .delete-button { flex-shrink: 0; }
+@media (max-width: 650px) { .mobile-delete-dock { left: 14px; right: 14px; bottom: 14px; padding: 11px 12px; }.mobile-delete-dock .delete-button { padding: 9px 10px; } }
