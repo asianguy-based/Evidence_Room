@@ -1,9 +1,9 @@
 # Evidence Room v1.0 release
 
-- [ ] Add an About view explaining the local-first workflow.
-- [ ] Add Copyright and GPL information with links to the repository license.
-- [ ] Label the interface and package metadata as v1.0.
-- [ ] Verify the production build and release assets.
-- [ ] Publish the code to GitHub as `Evidence_Room`.
-- [ ] Create a Notion checklist under `Projects → Evidence Room`.
-- [ ] Save a final checkpoint and deliver the release links.
+- [x] Add an About view explaining the local-first workflow.
+- [x] Add Copyright and GPL information with links to the repository license.
+- [x] Label the interface and package metadata as v1.0.
+- [x] Verify the production build and release assets.
+- [x] Publish the code to GitHub as `Evidence_Room`.
+- [x] Create a Notion checklist under `Projects → Evidence Room`.
+- [x] Save a final checkpoint and deliver the release links.
