@@ -1,7 +1,7 @@
 {
   "name": "Evidence Room — Picture Review Desk",
   "short_name": "Evidence Room",
-  "description": "A local-first duplicate picture review and cleanup tool.",
+  "description": "Evidence Room v1.0 — a local-first duplicate picture review and cleanup tool.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#eee9df",
