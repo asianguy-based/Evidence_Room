@@ -2,12 +2,12 @@
   "name": "Evidence Room — Picture Review Desk",
   "short_name": "Evidence Room",
   "description": "Evidence Room v1.0 — a local-first duplicate picture review and cleanup tool.",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#eee9df",
   "theme_color": "#2b2b27",
   "icons": [
-    { "src": "/manus-storage/evidence-room-mark_16396f01.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/manus-storage/evidence-room-mark_16396f01.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "./assets/evidence-room-mark.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./assets/evidence-room-mark.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }
